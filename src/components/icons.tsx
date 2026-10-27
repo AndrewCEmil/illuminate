@@ -131,3 +131,15 @@ export const IconUpload = () => (
     <path d="M12 16V5M7 10l5-5 5 5M5 20h14" />
   </Icon>
 );
+export const IconCircle = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="8" />
+    <circle cx="12" cy="12" r="1" fill="currentColor" />
+  </Icon>
+);
+export const IconRing = () => (
+  <Icon size={18}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="4.5" />
+  </Icon>
+);

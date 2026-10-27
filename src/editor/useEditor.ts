@@ -1,26 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ArtworkProject, PaletteColor, Point } from '../data/models';
-import { saveProject, saveViewport } from '../data/projectRepository';
+import { DEFAULT_ARTWORK_OPACITY, loadArtworkOpacity, saveArtworkOpacity, saveProject, saveViewport } from '../data/projectRepository';
 import { SaveQueue } from '../data/saveQueue';
 import type { SaveStatus } from '../data/saveQueue';
 import {
+  addCircle,
   addPolygon,
   deleteShape,
   reorderShape,
   setPaletteColor,
   setReference,
   setShapeColor,
-  setShapePoints,
+  toggleRing,
+  updateShapeGeometry,
   renameDocument,
   withNonUndoableFieldsOf,
 } from './documentOps';
 import type { ReorderDirection } from './documentOps';
-import type { DragPreview, ToolMode } from './editorTypes';
+import type { CircleDraft, DragPreview, ToolMode } from './editorTypes';
+import { EMPTY_CIRCLE_DRAFT } from './editorTypes';
 import { isValidPolygon } from './geometry';
 import * as H from './history';
 import type { History } from './history';
-import { beginShapeDrag, closeDraft, dragFocus, dragPoints, drawTap, tapSelect } from './interactions';
-import type { DrawTapResult, ShapeDrag } from './interactions';
+import { beginShapeDrag, circleBigEnough, circleFromDrag, circleTap, closeDraft, dragFocus, dragShape, drawTap, tapSelect } from './interactions';
+import type { CircleTapResult, DrawTapResult, ShapeDrag } from './interactions';
+import { isValidShape, shapeHandles } from './shapes';
 import type { GestureHost } from './pointerController';
 import { PointerController } from './pointerController';
 import type { Size, Viewport } from './viewport';
@@ -52,6 +56,8 @@ export function useEditor(opts: { initial: ArtworkProject; initialViewport: View
   const [activeColorId, setActiveColorId, activeColorRef] = useLiveState(opts.initial.palette[0]!.id);
   const [selectedId, setSelectedId, selectedRef] = useLiveState<string | null>(null);
   const [draft, setDraft, draftRef] = useLiveState<Point[]>([]);
+  const [circleDraft, setCircleDraft, circleDraftRef] = useLiveState<CircleDraft>(EMPTY_CIRCLE_DRAFT);
+  const [artworkOpacity, setArtworkOpacityState] = useState(DEFAULT_ARTWORK_OPACITY);
   const [preview, setPreview] = useLiveState<DragPreview | null>(null);
   const [placement, setPlacement] = useLiveState<Point | null>(null);
   const [viewport, setViewportState, viewportRef] = useLiveState<Viewport | null>(opts.initialViewport);
@@ -75,6 +81,21 @@ export function useEditor(opts: { initial: ArtworkProject; initialViewport: View
     );
   }
   const saveQueue = saveQueueRef.current;
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadArtworkOpacity()
+      .then((v) => !cancelled && setArtworkOpacityState(v))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const setArtworkOpacity = useCallback((v: number) => {
+    setArtworkOpacityState(v);
+    void saveArtworkOpacity(v).catch(() => {});
+  }, []);
 
   const viewportSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const projectId = opts.initial.id;
@@ -158,18 +179,22 @@ export function useEditor(opts: { initial: ArtworkProject; initialViewport: View
       setDraft(draftRef.current.slice(0, -1));
       return;
     }
+    if (circleDraftRef.current.rim.length > 0) {
+      setCircleDraft({ rim: circleDraftRef.current.rim.slice(0, -1), dragging: null });
+      return;
+    }
     const h = historyRef.current;
     if (!H.canUndo(h)) return;
     restoreSnapshot(H.undo(h), h.present);
-  }, [cancelInteraction, draftRef, historyRef, restoreSnapshot, setDraft]);
+  }, [cancelInteraction, circleDraftRef, draftRef, historyRef, restoreSnapshot, setCircleDraft, setDraft]);
 
   const redo = useCallback(() => {
-    if (draftRef.current.length > 0) return;
+    if (draftRef.current.length > 0 || circleDraftRef.current.rim.length > 0) return;
     cancelInteraction();
     const h = historyRef.current;
     if (!H.canRedo(h)) return;
     restoreSnapshot(H.redo(h), h.present);
-  }, [cancelInteraction, draftRef, historyRef, restoreSnapshot]);
+  }, [cancelInteraction, circleDraftRef, draftRef, historyRef, restoreSnapshot]);
 
   // --- drawing -------------------------------------------------------------
 
@@ -211,6 +236,43 @@ export function useEditor(opts: { initial: ArtworkProject; initialViewport: View
     setDraft([]);
   }, [cancelInteraction, setDraft]);
 
+  const createCircle = useCallback(
+    (circle: { cx: number; cy: number; radius: number }) => {
+      try {
+        applyDoc(addCircle(historyRef.current.present, circle, activeColorRef.current));
+      } catch (err) {
+        notify(err instanceof Error ? err.message : 'Couldn’t add circle', 'error');
+      }
+      setCircleDraft(EMPTY_CIRCLE_DRAFT);
+    },
+    [activeColorRef, applyDoc, historyRef, notify, setCircleDraft],
+  );
+
+  const handleCircleTap = useCallback(
+    (result: CircleTapResult) => {
+      switch (result.kind) {
+        case 'add':
+          setCircleDraft({ rim: result.rim, dragging: null });
+          break;
+        case 'create':
+          createCircle(result.circle);
+          break;
+        case 'reject':
+          navigator.vibrate?.(40);
+          notify(result.reason, 'error');
+          break;
+        case 'ignore':
+          break;
+      }
+    },
+    [createCircle, notify, setCircleDraft],
+  );
+
+  const cancelCircleDraft = useCallback(() => {
+    cancelInteraction();
+    setCircleDraft(EMPTY_CIRCLE_DRAFT);
+  }, [cancelInteraction, setCircleDraft]);
+
   // --- tools & selection -----------------------------------------------------
 
   const setTool = useCallback(
@@ -227,17 +289,18 @@ export function useEditor(opts: { initial: ArtworkProject; initialViewport: View
           notify('Unfinished shape discarded');
         }
       }
-      if (next === 'draw') setSelectedId(null);
+      setCircleDraft(EMPTY_CIRCLE_DRAFT);
+      if (next === 'draw' || next === 'circle') setSelectedId(null);
       setToolState(next);
     },
-    [cancelInteraction, draftRef, finishPolygon, notify, setDraft, setSelectedId, setToolState, toolRef],
+    [cancelInteraction, draftRef, finishPolygon, notify, setCircleDraft, setDraft, setSelectedId, setToolState, toolRef],
   );
 
   const pickColor = useCallback(
     (colorId: string) => {
       setActiveColorId(colorId);
       const sel = selectedRef.current;
-      if (sel && toolRef.current !== 'draw') {
+      if (sel && (toolRef.current === 'select' || toolRef.current === 'pan')) {
         applyDoc(setShapeColor(historyRef.current.present, sel, colorId));
       }
     },
@@ -259,6 +322,11 @@ export function useEditor(opts: { initial: ArtworkProject; initialViewport: View
     },
     [applyDoc, historyRef, selectedRef],
   );
+
+  const toggleSelectedRing = useCallback(() => {
+    const sel = selectedRef.current;
+    if (sel) applyDoc(toggleRing(historyRef.current.present, sel));
+  }, [applyDoc, historyRef, selectedRef]);
 
   const deselect = useCallback(() => setSelectedId(null), [setSelectedId]);
 
@@ -319,6 +387,7 @@ export function useEditor(opts: { initial: ArtworkProject; initialViewport: View
       if (!vp) return;
       const d = historyRef.current.present;
       if (toolRef.current === 'draw') handleDrawResult(drawTap(draftRef.current, p, vp));
+      else if (toolRef.current === 'circle') handleCircleTap(circleTap(circleDraftRef.current.rim, p, vp));
       else if (toolRef.current === 'select') setSelectedId(tapSelect(d, selectedRef.current, p, vp));
     },
     onDragStart: (start, current) => {
@@ -326,6 +395,14 @@ export function useEditor(opts: { initial: ArtworkProject; initialViewport: View
       if (!vp) return false;
       if (toolRef.current === 'draw') {
         setPlacement(screenToWorld(current, vp));
+        return true;
+      }
+      if (toolRef.current === 'circle') {
+        // Drag from the centre outwards. Any rim taps so far are abandoned.
+        const centre = screenToWorld(start, vp);
+        const now = screenToWorld(current, vp);
+        setCircleDraft({ rim: [], dragging: circleFromDrag(centre, now) });
+        setPlacement(now);
         return true;
       }
       if (toolRef.current !== 'select') return false;
@@ -342,16 +419,21 @@ export function useEditor(opts: { initial: ArtworkProject; initialViewport: View
         setPlacement(screenToWorld(p, vp));
         return;
       }
+      if (toolRef.current === 'circle') {
+        const d = circleDraftRef.current.dragging;
+        if (!d) return;
+        const now = screenToWorld(p, vp);
+        setCircleDraft({ rim: [], dragging: circleFromDrag({ x: d.cx, y: d.cy }, now) });
+        setPlacement(now);
+        return;
+      }
       const drag = dragRef.current;
       if (!drag) return;
-      const points = dragPoints(drag, screenToWorld(p, vp));
-      setPreview({
-        shapeId: drag.shapeId,
-        points,
-        valid: isValidPolygon(points),
-        focus: dragFocus(drag, points),
-        vertexIndex: drag.kind === 'vertex' ? drag.index : null,
-      });
+      const shape = dragShape(drag, screenToWorld(p, vp));
+      const handles = shapeHandles(shape);
+      const activeHandle =
+        drag.kind === 'vertex' ? drag.index : drag.kind === 'radius' ? handles.findIndex((h) => h.kind === drag.which) : null;
+      setPreview({ shape, valid: isValidShape(shape), focus: dragFocus(drag, shape), activeHandle });
     },
     onDragEnd: (p) => {
       const vp = viewportRef.current;
@@ -361,23 +443,33 @@ export function useEditor(opts: { initial: ArtworkProject; initialViewport: View
         handleDrawResult(drawTap(draftRef.current, p, vp));
         return;
       }
+      if (toolRef.current === 'circle') {
+        setPlacement(null);
+        const d = circleDraftRef.current.dragging;
+        if (!d) return;
+        const circle = circleFromDrag({ x: d.cx, y: d.cy }, screenToWorld(p, vp));
+        if (circleBigEnough(circle.radius, vp)) createCircle(circle);
+        else setCircleDraft(EMPTY_CIRCLE_DRAFT);
+        return;
+      }
       const drag = dragRef.current;
       dragRef.current = null;
       setPreview(null);
       if (!drag) return;
-      const points = dragPoints(drag, screenToWorld(p, vp));
-      if (!isValidPolygon(points)) {
+      const shape = dragShape(drag, screenToWorld(p, vp));
+      if (!isValidShape(shape)) {
         navigator.vibrate?.(40);
-        notify('Edges can’t cross — change undone', 'error');
+        notify(shape.type === 'polygon' ? 'Edges can’t cross — change undone' : 'That circle is too small — change undone', 'error');
         return;
       }
       // One committed history entry for the whole drag.
-      applyDoc(setShapePoints(historyRef.current.present, drag.shapeId, points));
+      applyDoc(updateShapeGeometry(historyRef.current.present, shape));
     },
     onDragCancel: () => {
       dragRef.current = null;
       setPreview(null);
       setPlacement(null);
+      if (circleDraftRef.current.dragging) setCircleDraft(EMPTY_CIRCLE_DRAFT);
     },
   };
 
@@ -402,12 +494,14 @@ export function useEditor(opts: { initial: ArtworkProject; initialViewport: View
   return {
     doc,
     palette,
-    canUndo: draft.length > 0 || H.canUndo(history),
-    canRedo: draft.length === 0 && H.canRedo(history),
+    canUndo: draft.length > 0 || circleDraft.rim.length > 0 || H.canUndo(history),
+    canRedo: draft.length === 0 && circleDraft.rim.length === 0 && H.canRedo(history),
     tool,
     activeColorId,
     selectedId,
     draft,
+    circleDraft,
+    artworkOpacity,
     preview,
     placement,
     viewport,
@@ -424,6 +518,9 @@ export function useEditor(opts: { initial: ArtworkProject; initialViewport: View
       deselect,
       finishDraft,
       cancelDraft,
+      cancelCircleDraft,
+      toggleSelectedRing,
+      setArtworkOpacity,
       commitPaletteColor,
       previewPaletteColor,
       setReferenceVisible,

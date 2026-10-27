@@ -20,11 +20,13 @@ import {
   IconEye,
   IconEyeOff,
   IconForward,
+  IconCircle,
   IconHand,
   IconMore,
   IconOpacity,
   IconPolygon,
   IconRedo,
+  IconRing,
   IconSelect,
   IconToBack,
   IconToFront,
@@ -102,6 +104,7 @@ export function Editor({ project, image, initialViewport, notify, registerFlush,
         actions.redo();
       } else if (e.key === 'Escape') {
         if (draft.length) actions.cancelDraft();
+        else if (ed.circleDraft.rim.length) actions.cancelCircleDraft();
         else actions.deselect();
       } else if (e.key === 'Enter' && draft.length) {
         actions.finishDraft();
@@ -112,7 +115,7 @@ export function Editor({ project, image, initialViewport, notify, registerFlush,
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [actions, draft.length, panel, selectedId]);
+  }, [actions, draft.length, ed.circleDraft.rim.length, panel, selectedId]);
 
   const exportBase = safeFilename(name);
   const svgBackground = blackBackground ? '#000000' : undefined;
@@ -192,10 +195,15 @@ export function Editor({ project, image, initialViewport, notify, registerFlush,
             draft={draft}
             draftColor={draftColor}
             placement={ed.placement}
+            circleDraft={ed.circleDraft}
+            artworkOpacity={ed.artworkOpacity}
           />
         )}
         {tool === 'draw' && draft.length === 0 && doc.shapes.length === 0 && (
           <div className="hint">Tap to place corners. Hold and drag to aim with the magnifier. Two fingers to zoom and pan.</div>
+        )}
+        {tool === 'circle' && ed.circleDraft.rim.length === 0 && !ed.circleDraft.dragging && (
+          <div className="hint">Drag out from the centre — or tap 3 points on the edge of a circle to trace it.</div>
         )}
       </div>
 
@@ -213,14 +221,35 @@ export function Editor({ project, image, initialViewport, notify, registerFlush,
             </button>
           </div>
         )}
+        {ed.circleDraft.rim.length > 0 && (
+          <div className="context-row">
+            <button type="button" className="text-btn" onClick={actions.cancelCircleDraft}>
+              <IconClose /> Cancel
+            </button>
+            <span className="context-info">
+              Tap {3 - ed.circleDraft.rim.length} more point{ed.circleDraft.rim.length === 2 ? '' : 's'} on the edge
+            </span>
+          </div>
+        )}
         {selectedShape && draft.length === 0 && (
           <div className="context-row">
             <button type="button" className="icon-btn" aria-label="Delete shape" onClick={actions.deleteSelected}>
               <IconTrash />
             </button>
-            <span className="context-info">
-              {selIndex + 1} / {doc.shapes.length}
-            </span>
+            {selectedShape.type === 'circle' ? (
+              <button
+                type="button"
+                className={`text-btn small${selectedShape.innerRadius > 0 ? ' on' : ''}`}
+                aria-pressed={selectedShape.innerRadius > 0}
+                onClick={actions.toggleSelectedRing}
+              >
+                <IconRing /> Ring
+              </button>
+            ) : (
+              <span className="context-info">
+                {selIndex + 1} / {doc.shapes.length}
+              </span>
+            )}
             <button type="button" className="icon-btn" aria-label="Send to back" disabled={selIndex <= 0} onClick={() => actions.reorderSelected('back')}>
               <IconToBack />
             </button>
@@ -253,13 +282,14 @@ export function Editor({ project, image, initialViewport, notify, registerFlush,
         <PaletteBar
           palette={ed.palette}
           activeColorId={ed.activeColorId}
-          selectedShapeColorId={tool !== 'draw' && selectedShape ? selectedShape.colorId : null}
+          selectedShapeColorId={(tool === 'select' || tool === 'pan') && selectedShape ? selectedShape.colorId : null}
           onPick={actions.pickColor}
           onEdit={(id) => setPanel({ paletteEdit: id })}
         />
         <div className="tool-row" role="toolbar" aria-label="Tools">
           <ToolButton label="Select" active={tool === 'select'} onClick={() => actions.setTool('select')} icon={<IconSelect />} />
-          <ToolButton label="Draw" active={tool === 'draw'} onClick={() => actions.setTool('draw')} icon={<IconPolygon />} />
+          <ToolButton label="Polygon" active={tool === 'draw'} onClick={() => actions.setTool('draw')} icon={<IconPolygon />} />
+          <ToolButton label="Circle" active={tool === 'circle'} onClick={() => actions.setTool('circle')} icon={<IconCircle />} />
           <ToolButton label="Pan" active={tool === 'pan'} onClick={() => actions.setTool('pan')} icon={<IconHand />} />
         </div>
       </footer>
@@ -277,7 +307,15 @@ export function Editor({ project, image, initialViewport, notify, registerFlush,
           onClose={() => setPanel((p) => (p === 'menu' ? null : p))}
         />
       )}
-      {panel === 'opacity' && <OpacityPopover opacity={doc.reference.opacity} onChange={actions.setReferenceOpacity} onClose={() => setPanel(null)} />}
+      {panel === 'opacity' && (
+        <OpacityPopover
+          referenceOpacity={doc.reference.opacity}
+          artworkOpacity={ed.artworkOpacity}
+          onReferenceChange={actions.setReferenceOpacity}
+          onArtworkChange={actions.setArtworkOpacity}
+          onClose={() => setPanel(null)}
+        />
+      )}
       {panel === 'rename' && (
         <PromptDialog
           title="Rename project"

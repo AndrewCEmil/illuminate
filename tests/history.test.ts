@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { addPolygon, deleteShape, reorderShape, setPaletteColor, setReference, setShapeColor, setShapePoints, withNonUndoableFieldsOf } from '../src/editor/documentOps';
 import { canRedo, canUndo, commit, createHistory, redo, replacePresent, undo } from '../src/editor/history';
 import { dragPoints } from '../src/editor/interactions';
-import { makeProject, projectWithShapes, square } from './helpers';
+import { makeProject, projectWithShapes, square, pts } from './helpers';
 
 describe('history', () => {
   it('undoes and redoes in order', () => {
@@ -47,16 +47,16 @@ describe('history', () => {
     const doc = projectWithShapes();
     let h = createHistory(doc);
     const shape = doc.shapes[0]!;
-    const drag = { kind: 'vertex' as const, shapeId: shape.id, index: 2, original: shape.points, startWorld: { x: 100, y: 100 } };
+    const drag = { kind: 'vertex' as const, shapeId: shape.id, index: 2, original: shape, startWorld: { x: 100, y: 100 } };
     // Many pointer moves only produce previews...
-    let preview = shape.points;
+    let preview = pts(shape);
     for (let i = 1; i <= 50; i++) preview = dragPoints(drag, { x: 100 + i, y: 100 + i / 2 });
     // ...and a single commit at the end.
     h = commit(h, setShapePoints(h.present, shape.id, preview));
     expect(h.past.length).toBe(1);
-    expect(h.present.shapes[0]!.points[2]).toEqual({ x: 150, y: 125 });
+    expect(pts(h.present.shapes[0]!)[2]).toEqual({ x: 150, y: 125 });
     h = undo(h);
-    expect(h.present.shapes[0]!.points).toEqual(shape.points);
+    expect(pts(h.present.shapes[0])).toEqual(pts(shape));
   });
 
   it('undo keeps current reference settings and name (they are not artwork edits)', () => {

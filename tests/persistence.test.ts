@@ -100,7 +100,7 @@ describe('persistence', () => {
 
   it('refuses to store invalid documents', async () => {
     const bad = withId('p1', 'i1');
-    bad.shapes[0]!.points = [{ x: 0, y: 0 }, { x: 1, y: 1 }];
+    bad.shapes[0] = { ...bad.shapes[0]!, type: 'polygon', points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] } as never;
     await expect(saveProject(bad)).rejects.toBeInstanceOf(ValidationError);
   });
 });

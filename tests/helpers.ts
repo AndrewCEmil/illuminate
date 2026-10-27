@@ -1,4 +1,4 @@
-import type { ArtworkProject, Point } from '../src/data/models';
+import type { ArtworkProject, Point, Shape } from '../src/data/models';
 import { createProjectDocument } from '../src/data/models';
 import { addPolygon } from '../src/editor/documentOps';
 
@@ -20,4 +20,10 @@ export function projectWithShapes(): ArtworkProject {
   doc = addPolygon(doc, square(50, 50, 100), red!.id, 'b');
   doc = addPolygon(doc, [{ x: 300, y: 300 }, { x: 400, y: 300 }, { x: 350, y: 380 }], gold!.id, 'c');
   return doc;
+}
+
+/** Points of a polygon shape (fails the test if it isn't one). */
+export function pts(shape: Shape | undefined): Point[] {
+  if (!shape || shape.type !== 'polygon') throw new Error('expected a polygon');
+  return shape.points;
 }

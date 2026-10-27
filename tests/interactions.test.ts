@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { beginShapeDrag, closeDraft, dragPoints, drawTap, tapSelect } from '../src/editor/interactions';
 import { worldToScreen } from '../src/editor/viewport';
-import { projectWithShapes } from './helpers';
+import { projectWithShapes, pts } from './helpers';
 
 const vp = { x: 10, y: 20, scale: 2 };
 const s = (x: number, y: number) => worldToScreen({ x, y }, vp);
@@ -58,7 +58,7 @@ describe('select-mode drags', () => {
   it('applies drags as deltas so geometry does not jump at drag start', () => {
     const doc = projectWithShapes();
     const drag = beginShapeDrag(doc, 'a', { x: s(100, 100).x + 6, y: s(100, 100).y + 4 }, vp)!;
-    expect(dragPoints(drag, drag.startWorld)).toEqual(doc.shapes[0]!.points);
+    expect(dragPoints(drag, drag.startWorld)).toEqual(pts(doc.shapes[0]!));
     expect(dragPoints(drag, { x: drag.startWorld.x + 10, y: drag.startWorld.y })[2]).toEqual({ x: 110, y: 100 });
   });
 
@@ -66,7 +66,7 @@ describe('select-mode drags', () => {
     const doc = projectWithShapes();
     const drag = beginShapeDrag(doc, 'c', s(350, 320), vp)!;
     const moved = dragPoints(drag, { x: drag.startWorld.x - 5, y: drag.startWorld.y + 5 });
-    expect(moved).toEqual(doc.shapes[2]!.points.map((p) => ({ x: p.x - 5, y: p.y + 5 })));
+    expect(moved).toEqual(pts(doc.shapes[2]!).map((p) => ({ x: p.x - 5, y: p.y + 5 })));
   });
 
   it('tap selects topmost, empty tap deselects', () => {

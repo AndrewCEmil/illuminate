@@ -1,5 +1,5 @@
 import type { ArtworkProject } from '../data/models';
-import { SCHEMA_VERSION, newId } from '../data/models';
+import { MIN_SUPPORTED_SCHEMA_VERSION, SCHEMA_VERSION, newId } from '../data/models';
 import { ValidationError, validateProject } from '../data/validation';
 
 export const BACKUP_FORMAT = 'geometric-manuscript-project';
@@ -69,7 +69,8 @@ export function parseBackup(text: string, now = new Date()): RestoredBackup {
   if (!raw || typeof raw !== 'object') throw new ValidationError('Backup must be a JSON object');
   const o = raw as Record<string, unknown>;
   if (o.format !== BACKUP_FORMAT) throw new ValidationError('Not a Geometric Manuscript project backup');
-  if (o.schemaVersion !== SCHEMA_VERSION) {
+  const version = o.schemaVersion;
+  if (typeof version !== 'number' || version < MIN_SUPPORTED_SCHEMA_VERSION || version > SCHEMA_VERSION) {
     throw new ValidationError(`Unsupported backup version ${String(o.schemaVersion)}`);
   }
   const project = validateProject(o.project);

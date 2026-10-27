@@ -126,6 +126,21 @@ export async function saveViewport(projectId: string, viewport: Viewport): Promi
   await db.put('settings', { x: viewport.x, y: viewport.y, scale: viewport.scale }, viewportKey(projectId));
 }
 
+const ARTWORK_OPACITY_KEY = 'artworkOpacity';
+export const DEFAULT_ARTWORK_OPACITY = 0.75;
+
+/** On-screen artwork opacity while tracing (an app-wide preference, never exported). */
+export async function loadArtworkOpacity(): Promise<number> {
+  const db = await getDB();
+  const v = await db.get('settings', ARTWORK_OPACITY_KEY);
+  return typeof v === 'number' && v >= 0 && v <= 1 ? v : DEFAULT_ARTWORK_OPACITY;
+}
+
+export async function saveArtworkOpacity(opacity: number): Promise<void> {
+  const db = await getDB();
+  await db.put('settings', Math.min(1, Math.max(0, opacity)), ARTWORK_OPACITY_KEY);
+}
+
 /** Asks the browser not to evict our storage under pressure. Best-effort. */
 export async function requestPersistentStorage(): Promise<boolean> {
   try {

@@ -1,5 +1,6 @@
-import type { ArtworkProject, Point, PolygonShape } from '../data/models';
-import { distance, pointInPolygon } from './geometry';
+import type { ArtworkProject, Point, Shape } from '../data/models';
+import { distance } from './geometry';
+import { shapeContains } from './shapes';
 import type { Viewport } from './viewport';
 import { worldToScreen } from './viewport';
 
@@ -31,10 +32,10 @@ export function hitVertex(
 }
 
 /** Topmost shape containing the world point. */
-export function hitShape(doc: ArtworkProject, worldPoint: Point): PolygonShape | null {
+export function hitShape(doc: ArtworkProject, worldPoint: Point): Shape | null {
   for (let i = doc.shapes.length - 1; i >= 0; i--) {
     const shape = doc.shapes[i]!;
-    if (pointInPolygon(worldPoint, shape.points)) return shape;
+    if (shapeContains(shape, worldPoint)) return shape;
   }
   return null;
 }

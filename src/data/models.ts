@@ -3,7 +3,9 @@
  * no DOM objects, no pointer state, no viewport.
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+/** Older document versions that validation can upgrade. v1: polygons only. */
+export const MIN_SUPPORTED_SCHEMA_VERSION = 1;
 
 export type Point = {
   x: number;
@@ -17,6 +19,20 @@ export type PolygonShape = {
   /** References a PaletteColor.id, never a raw colour. */
   colorId: string;
 };
+
+/** A filled disc, or a ring when innerRadius > 0. Centre and radii are in world units. */
+export type CircleShape = {
+  id: string;
+  type: 'circle';
+  cx: number;
+  cy: number;
+  radius: number;
+  /** 0 for a solid disc; otherwise 0 < innerRadius < radius and the centre is unpainted. */
+  innerRadius: number;
+  colorId: string;
+};
+
+export type Shape = PolygonShape | CircleShape;
 
 export type PaletteColor = {
   id: string;
@@ -50,7 +66,7 @@ export type ArtworkProject = {
   palette: PaletteColor[];
 
   /** Array order defines back-to-front stacking. */
-  shapes: PolygonShape[];
+  shapes: Shape[];
 };
 
 export const DEFAULT_REFERENCE_OPACITY = 0.45;

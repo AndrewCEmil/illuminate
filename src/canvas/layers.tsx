@@ -1,6 +1,8 @@
 import { memo } from 'react';
-import type { ArtworkProject, PaletteColor, Point, PolygonShape } from '../data/models';
-import type { DragPreview } from '../editor/editorTypes';
+import type { ArtworkProject, PaletteColor, Point, Shape } from '../data/models';
+import type { CircleDraft, DragPreview } from '../editor/editorTypes';
+import { shapeHandles } from '../editor/shapes';
+import { ringPath } from '../export/svgExport';
 
 const pointsAttr = (pts: readonly Point[]) => pts.map((p) => `${p.x},${p.y}`).join(' ');
 
@@ -19,24 +21,38 @@ export const ReferenceLayer = memo(function ReferenceLayer({
   return <image href={url} x={0} y={0} width={width} height={height} opacity={opacity} preserveAspectRatio="none" style={{ pointerEvents: 'none' }} />;
 });
 
-/** The artwork itself: one filled polygon per shape, in stacking order. */
-export const PolygonLayer = memo(function PolygonLayer({
+/** One shape as an SVG element. Shared by the editor, magnifier and project thumbnails. */
+export function ShapeElement({ shape, fill, ...rest }: { shape: Shape; fill: string } & React.SVGAttributes<SVGElement>) {
+  if (shape.type === 'polygon') return <polygon {...rest} points={pointsAttr(shape.points)} fill={fill} />;
+  if (shape.innerRadius > 0) return <path {...rest} d={ringPath(shape)} fillRule="evenodd" fill={fill} />;
+  return <circle {...rest} cx={shape.cx} cy={shape.cy} r={shape.radius} fill={fill} />;
+}
+
+/**
+ * The artwork itself, in stacking order. `opacity` applies to the layer as a
+ * whole (a tracing aid): shapes stay opaque against each other and only the
+ * reference shows through.
+ */
+export const ShapeLayer = memo(function ShapeLayer({
   shapes,
   palette,
   preview,
+  opacity = 1,
 }: {
-  shapes: PolygonShape[];
+  shapes: Shape[];
   palette: PaletteColor[];
   preview: DragPreview | null;
+  opacity?: number;
 }) {
   const colors = new Map(palette.map((c) => [c.id, c.hex]));
   return (
-    <g>
+    <g opacity={opacity < 1 ? opacity : undefined} data-testid="artwork">
       {shapes.map((s) => (
-        <polygon
+        <ShapeElement
           key={s.id}
           data-shape-id={s.id}
-          points={pointsAttr(preview && preview.shapeId === s.id ? preview.points : s.points)}
+          data-shape-type={s.type}
+          shape={preview && preview.shape.id === s.id ? preview.shape : s}
           fill={colors.get(s.colorId) ?? '#000'}
         />
       ))}
@@ -44,33 +60,38 @@ export const PolygonLayer = memo(function PolygonLayer({
   );
 });
 
-/** Selection outline and vertex handles; sizes are divided by scale so they stay constant on screen. */
-export function SelectionOverlay({ points, scale, valid, activeIndex }: { points: Point[]; scale: number; valid: boolean; activeIndex: number | null }) {
-  const attr = pointsAttr(points);
+/** Selection outline and handles; sizes are divided by scale so they stay constant on screen. */
+export function SelectionOverlay({ shape, scale, valid, activeHandle }: { shape: Shape; scale: number; valid: boolean; activeHandle: number | null }) {
   const r = 7 / scale;
+  const outline = { fill: 'none', vectorEffect: 'non-scaling-stroke' as const, strokeLinejoin: 'round' as const };
   return (
     <g pointerEvents="none">
-      <polygon points={attr} fill="none" stroke="#000" strokeWidth={4} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
-      <polygon
-        points={attr}
-        fill="none"
-        stroke={valid ? '#ffffff' : '#ff4d4d'}
-        strokeWidth={2}
-        vectorEffect="non-scaling-stroke"
-        strokeLinejoin="round"
-      />
-      {points.map((p, i) => (
-        <circle
-          key={i}
-          cx={p.x}
-          cy={p.y}
-          r={i === activeIndex ? r * 1.4 : r}
-          fill={i === activeIndex ? '#ffd166' : '#ffffff'}
-          stroke="#000"
-          strokeWidth={1.5}
-          vectorEffect="non-scaling-stroke"
-        />
-      ))}
+      <ShapeElement shape={shape} {...outline} fill="none" stroke="#000" strokeWidth={4} />
+      <ShapeElement shape={shape} {...outline} fill="none" stroke={valid ? '#ffffff' : '#ff4d4d'} strokeWidth={2} />
+      {shapeHandles(shape).map((h, i) =>
+        h.kind === 'center' ? (
+          <g key={i}>
+            <circle cx={h.point.x} cy={h.point.y} r={r} fill={i === activeHandle ? '#ffd166' : '#ffffff'} stroke="#000" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+            <path
+              d={`M${h.point.x - r * 0.55} ${h.point.y}H${h.point.x + r * 0.55}M${h.point.x} ${h.point.y - r * 0.55}V${h.point.y + r * 0.55}`}
+              stroke="#000"
+              strokeWidth={1.5}
+              vectorEffect="non-scaling-stroke"
+            />
+          </g>
+        ) : (
+          <circle
+            key={i}
+            cx={h.point.x}
+            cy={h.point.y}
+            r={i === activeHandle ? r * 1.4 : r}
+            fill={i === activeHandle ? '#ffd166' : '#ffffff'}
+            stroke="#000"
+            strokeWidth={1.5}
+            vectorEffect="non-scaling-stroke"
+          />
+        ),
+      )}
     </g>
   );
 }
@@ -118,6 +139,35 @@ export function DraftOverlay({
         </g>
       )}
       {pending && <circle cx={pending.x} cy={pending.y} r={4 / scale} fill="#ffd166" stroke="#000" strokeWidth={1} vectorEffect="non-scaling-stroke" />}
+    </g>
+  );
+}
+
+/** Circle tool feedback: tapped rim points, and the live circle while dragging out from the centre. */
+export function CircleDraftOverlay({ draft, color, scale }: { draft: CircleDraft; color: string; scale: number }) {
+  const { rim, dragging } = draft;
+  if (rim.length === 0 && !dragging) return null;
+  return (
+    <g pointerEvents="none">
+      {dragging && (
+        <>
+          <circle cx={dragging.cx} cy={dragging.cy} r={dragging.radius} fill={color} fillOpacity={0.55} stroke="#fff" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+          <line
+            x1={dragging.cx}
+            y1={dragging.cy}
+            x2={dragging.cx + dragging.radius}
+            y2={dragging.cy}
+            stroke="#ffd166"
+            strokeWidth={1.5}
+            strokeDasharray="4 4"
+            vectorEffect="non-scaling-stroke"
+          />
+          <circle cx={dragging.cx} cy={dragging.cy} r={4 / scale} fill="#ffd166" stroke="#000" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+        </>
+      )}
+      {rim.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r={6 / scale} fill="#ffd166" stroke="#000" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+      ))}
     </g>
   );
 }

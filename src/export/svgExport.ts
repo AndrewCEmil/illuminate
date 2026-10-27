@@ -1,4 +1,4 @@
-import type { ArtworkProject } from '../data/models';
+import type { ArtworkProject, CircleShape } from '../data/models';
 import { paletteLookup } from '../data/models';
 
 export type SvgExportOptions = {
@@ -17,7 +17,8 @@ function escapeXml(s: string): string {
 }
 
 /**
- * Clean, standalone SVG of the artwork only: one <polygon> per shape in
+ * Clean, standalone SVG of the artwork only: one element per shape (<polygon>,
+ * <circle>, or an even-odd <path> for rings) in
  * stacking order, fills resolved from the palette, transparent by default.
  * Independent of the editor's zoom/pan.
  */
@@ -35,10 +36,25 @@ export function exportSvg(project: ArtworkProject, options: SvgExportOptions = {
   for (const shape of project.shapes) {
     const fill = colors.get(shape.colorId) ?? '#000000';
     const color = project.palette.find((c) => c.id === shape.colorId);
-    const pts = shape.points.map((p) => `${formatNumber(p.x)},${formatNumber(p.y)}`).join(' ');
-    const label = color?.name ? ` data-color="${escapeXml(color.name)}"` : '';
-    lines.push(`  <polygon id="${escapeXml(shape.id)}"${label} fill="${fill}" points="${pts}"/>`);
+    const attrs = `id="${escapeXml(shape.id)}"${color?.name ? ` data-color="${escapeXml(color.name)}"` : ''} fill="${fill}"`;
+    if (shape.type === 'polygon') {
+      const pts = shape.points.map((p) => `${formatNumber(p.x)},${formatNumber(p.y)}`).join(' ');
+      lines.push(`  <polygon ${attrs} points="${pts}"/>`);
+    } else if (shape.innerRadius > 0) {
+      lines.push(`  <path ${attrs} fill-rule="evenodd" d="${ringPath(shape)}"/>`);
+    } else {
+      lines.push(`  <circle ${attrs} cx="${formatNumber(shape.cx)}" cy="${formatNumber(shape.cy)}" r="${formatNumber(shape.radius)}"/>`);
+    }
   }
   lines.push('</svg>');
   return lines.join('\n') + '\n';
+}
+
+/** Two full circles (each as two half-arcs) filled even-odd: a ring with a transparent centre. */
+export function ringPath(c: CircleShape): string {
+  const circle = (r: number) => {
+    const R = formatNumber(r);
+    return `M${formatNumber(c.cx + r)} ${formatNumber(c.cy)}A${R} ${R} 0 1 0 ${formatNumber(c.cx - r)} ${formatNumber(c.cy)}A${R} ${R} 0 1 0 ${formatNumber(c.cx + r)} ${formatNumber(c.cy)}Z`;
+  };
+  return `${circle(c.radius)}${circle(c.innerRadius)}`;
 }

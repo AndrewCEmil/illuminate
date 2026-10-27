@@ -13,7 +13,7 @@ export function pngSize(project: ArtworkProject, scale: number): { width: number
 }
 
 /** Minimal subset of CanvasRenderingContext2D used for drawing, so it can be tested with a fake. */
-export type DrawContext = Pick<CanvasRenderingContext2D, 'beginPath' | 'moveTo' | 'lineTo' | 'closePath' | 'fill' | 'fillRect' | 'setTransform'> & {
+export type DrawContext = Pick<CanvasRenderingContext2D, 'beginPath' | 'moveTo' | 'lineTo' | 'arc' | 'closePath' | 'fill' | 'fillRect' | 'setTransform'> & {
   fillStyle: CanvasRenderingContext2D['fillStyle'];
 };
 
@@ -27,9 +27,20 @@ export function drawArtwork(ctx: DrawContext, project: ArtworkProject, scale: nu
   for (const shape of project.shapes) {
     ctx.fillStyle = colors.get(shape.colorId) ?? '#000000';
     ctx.beginPath();
-    shape.points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-    ctx.closePath();
-    ctx.fill();
+    if (shape.type === 'polygon') {
+      shape.points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.moveTo(shape.cx + shape.radius, shape.cy);
+      ctx.arc(shape.cx, shape.cy, shape.radius, 0, Math.PI * 2);
+      if (shape.innerRadius > 0) {
+        ctx.moveTo(shape.cx + shape.innerRadius, shape.cy);
+        ctx.arc(shape.cx, shape.cy, shape.innerRadius, 0, Math.PI * 2);
+      }
+      ctx.closePath();
+      ctx.fill('evenodd');
+    }
   }
 }
 

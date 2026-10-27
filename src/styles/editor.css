@@ -235,8 +235,8 @@
   border-radius: 14px;
   padding: 10px 14px;
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 6px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
 }
 
@@ -256,4 +256,57 @@
 .popover-value {
   width: 3.2em;
   text-align: right;
+}
+
+.popover-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.popover-label {
+  width: 5.2em;
+}
+
+.popover-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.text-btn.small {
+  min-height: 40px;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.text-btn.on {
+  background: var(--accent);
+  color: #1a1408;
+  font-weight: 600;
+}
+
+.tool-btn {
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  min-height: 52px;
+}
+
+/* The selection row holds up to 6 icon buttons plus the Ring toggle: keep it within 360px phones. */
+.context-row {
+  gap: 2px;
+}
+
+.context-row .icon-btn {
+  width: 42px;
+  flex-shrink: 1;
+  min-width: 36px;
+}
+
+.context-row .text-btn.small {
+  padding: 0 10px;
+  gap: 4px;
+  flex: none;
 }

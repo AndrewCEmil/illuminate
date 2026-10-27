@@ -51,22 +51,48 @@ export function EditorMenu(p: Props) {
   );
 }
 
-export function OpacityPopover({ opacity, onChange, onClose }: { opacity: number; onChange: (v: number) => void; onClose: () => void }) {
+/**
+ * Two see-through controls: the reference image, and the artwork itself (a
+ * tracing aid that only applies on screen while the reference is visible).
+ */
+export function OpacityPopover({
+  referenceOpacity,
+  artworkOpacity,
+  onReferenceChange,
+  onArtworkChange,
+  onClose,
+}: {
+  referenceOpacity: number;
+  artworkOpacity: number;
+  onReferenceChange: (v: number) => void;
+  onArtworkChange: (v: number) => void;
+  onClose: () => void;
+}) {
   return (
     <div className="popover-backdrop" onClick={onClose}>
       <div className="popover" onClick={(e) => e.stopPropagation()}>
-        <span className="popover-label">Reference</span>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          step={1}
-          value={Math.round(opacity * 100)}
-          onChange={(e) => onChange(Number(e.target.value) / 100)}
-          aria-label="Reference opacity"
-        />
-        <span className="popover-value">{Math.round(opacity * 100)}%</span>
+        <OpacitySlider label="Reference" value={referenceOpacity} min={0} onChange={onReferenceChange} />
+        <OpacitySlider label="Artwork" value={artworkOpacity} min={0.1} onChange={onArtworkChange} />
+        <p className="popover-note">Artwork see-through only applies while the reference is showing. Exports are always solid.</p>
       </div>
     </div>
+  );
+}
+
+function OpacitySlider({ label, value, min, onChange }: { label: string; value: number; min: number; onChange: (v: number) => void }) {
+  return (
+    <label className="popover-row">
+      <span className="popover-label">{label}</span>
+      <input
+        type="range"
+        min={Math.round(min * 100)}
+        max={100}
+        step={1}
+        value={Math.round(value * 100)}
+        onChange={(e) => onChange(Number(e.target.value) / 100)}
+        aria-label={`${label} opacity`}
+      />
+      <span className="popover-value">{Math.round(value * 100)}%</span>
+    </label>
   );
 }

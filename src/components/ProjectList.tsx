@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ArtworkProject } from '../data/models';
 import { paletteLookup } from '../data/models';
 import { loadImage, thumbKey } from '../data/projectRepository';
+import { ShapeElement } from '../canvas/layers';
 import { ConfirmDialog, PromptDialog } from './Dialogs';
 import { IconPencil, IconPlus, IconTrash, IconUpload } from './icons';
 
@@ -156,7 +157,7 @@ function Thumbnail({ project }: { project: ArtworkProject }) {
       <rect width={project.width} height={project.height} fill="#000" />
       {url && <image href={url} width={project.width} height={project.height} opacity={project.shapes.length ? 0.25 : 0.6} preserveAspectRatio="none" />}
       {project.shapes.map((s) => (
-        <polygon key={s.id} points={s.points.map((pt) => `${pt.x},${pt.y}`).join(' ')} fill={colors.get(s.colorId)} />
+        <ShapeElement key={s.id} shape={s} fill={colors.get(s.colorId) ?? '#000'} />
       ))}
     </svg>
   );

@@ -1,22 +1,24 @@
 # Geometric Manuscript Studio
 
-A mobile-first, offline Progressive Web App for tracing reference images (illuminated manuscripts, especially) into abstract compositions of flat-coloured polygons. The results export as clean SVG, ready to be scaled up and painted onto fabric.
+A mobile-first, offline Progressive Web App for tracing reference images (illuminated manuscripts, especially) into abstract compositions of flat-coloured polygons, circles and rings. The results export as clean SVG, ready to be scaled up and painted onto fabric.
 
 Everything runs locally in the browser. There is no backend, no account and no analytics.
 
 ## Using the app
 
 1. **New from image**: choose a reference picture. It's decoded and downscaled (max 2560 px) on the device.
-2. **Draw** (polygon tool): tap to place corners. To close the shape, tap the gold first corner or press **Finish**. If you hold and drag, a magnifier shows exactly where the corner will land when you lift your finger. Placements that would make edges cross are refused, with a buzz.
-3. **Select**: tap a shape to select it.
+2. **Polygon** tool: tap to place corners. To close the shape, tap the gold first corner or press **Finish**. If you hold and drag, a magnifier shows exactly where the corner will land when you lift your finger. Placements that would make edges cross are refused, with a buzz.
+3. **Circle** tool: drag from the centre outwards. Or, to trace a halo or medallion whose centre you can't see, tap three points on its edge; the circle snaps through them.
+4. **Select**: tap a shape to select it.
    - Drag a white handle to move a corner, or drag inside the shape to move all of it.
+   - Circles have a centre handle (moves it) and a radius handle on the right edge. **Ring** cuts a hole in a circle; the hole's handle sits on its left edge. The hole is unpainted, like any area without a shape.
    - Tap a swatch to recolour the shape.
    - Use the context row to delete it or change its stacking order (back, backward, forward, front).
-4. **Navigate**: pinch with two fingers to zoom, and drag with two fingers to pan; this works in every mode. In Select mode you can also drag empty space with one finger. The Pan tool makes every one-finger drag pan.
-5. **Palette**: long-press a swatch, or tap ✎, to edit that slot. Every shape that uses the slot changes with it.
-6. **Reference**: the eye icon hides or shows it; the half-circle icon sets its opacity.
-7. **Undo/redo**: while you're drawing, undo removes the last corner first.
-8. **Menu (⋯)**:
+5. **Navigate**: pinch with two fingers to zoom, and drag with two fingers to pan; this works in every mode. In Select mode you can also drag empty space with one finger. The Pan tool makes every one-finger drag pan.
+6. **Palette**: long-press a swatch, or tap ✎, to edit that slot. Every shape that uses the slot changes with it.
+7. **See-through**: the half-circle icon has two sliders. *Reference* fades the image. *Artwork* (75% by default) lets the reference show through your shapes while you trace. Artwork see-through only applies while the reference is showing; hide it with the eye icon to see the true, solid composition. Exports are always solid.
+8. **Undo/redo**: while you're drawing, undo removes the last corner (or circle edge point) first.
+9. **Menu (⋯)**:
    - Fit to screen, Rename.
    - Export SVG, PNG or PNG at double size. Exports are transparent unless you tick "black background".
    - Back up the project as `.json`.
@@ -41,7 +43,7 @@ Other scripts:
 
 | Command | What it does |
 | --- | --- |
-| `npm test` | Vitest unit tests (geometry, viewport, history, gestures, autosave, persistence via fake-indexeddb, export, backup) |
+| `npm test` | Vitest unit tests (geometry, circles/rings, viewport, history, gestures, autosave, persistence via fake-indexeddb, export, backup, schema upgrades) |
 | `npm run test:e2e` | Builds, serves the production build, runs Playwright with Pixel 7 touch emulation (first run: `npx playwright install chromium`) |
 | `npm run typecheck` | Strict TypeScript check |
 | `npm run build` | Production build into `dist/`, including the service worker and manifest |
@@ -60,6 +62,7 @@ src/
   editor/
     viewport.ts             screen <-> world transform, zoomAt, panBy, pinch, fit
     geometry.ts             simple-polygon validation, intersection, hit primitives
+    shapes.ts               shape-generic geometry: containment, handles, circle through 3 points
     hitTesting.ts           constant-screen-size vertex hit targets, topmost shape
     interactions.ts         what taps/drags mean (pure, tested)
     pointerController.ts    gesture recogniser (tap / drag / pinch / wheel)
@@ -73,6 +76,7 @@ tests/                      unit tests; tests/e2e for Playwright
 
 **Design notes**
 
+- Documents are versioned: version 2 added circles. Version 1 projects and backups are upgraded automatically when loaded.
 - All geometry is stored in image/world pixels. The viewport transform (`screen = world × scale + offset`) lives in `editor/viewport.ts`, and rendering, hit testing, drawing and dragging all go through it.
 - Polygons reference palette slots by id, never by raw colour.
 - Drags render a transient preview and commit once on release, so a whole drag is one undo step and one database write.
@@ -119,7 +123,7 @@ These were verified only in desktop Chromium with touch emulation (Playwright CD
 
 ## Known limitations
 
-- Polygons only: no curves, holes, boolean operations, grouping, rotation or scaling. Bare fabric is represented by the absence of paint.
+- Shapes are polygons, circles and rings only: no curves, ellipses, arbitrary holes, boolean operations, grouping, rotation or scaling. Bare fabric is represented by the absence of paint.
 - Corners can't be added to or removed from an existing polygon; redraw the shape instead.
 - When shapes overlap, a tap selects the topmost one. To reach a shape underneath, send the top one backward.
 - Undo history is per session and resets when the project is reopened. The committed document is always saved.

@@ -1,6 +1,7 @@
-import type { ArtworkProject, PaletteColor, Point, PolygonShape, ReferenceImage } from './models';
-import { SCHEMA_VERSION } from './models';
+import type { ArtworkProject, PaletteColor, Point, ReferenceImage, Shape } from './models';
+import { MIN_SUPPORTED_SCHEMA_VERSION, SCHEMA_VERSION } from './models';
 import { isValidPolygon } from '../editor/geometry';
+import { isValidCircle } from '../editor/shapes';
 import { normalizeHex } from '../editor/documentOps';
 
 export class ValidationError extends Error {
@@ -76,7 +77,9 @@ function reference(v: unknown, path: string): ReferenceImage {
 export function validateProject(value: unknown): ArtworkProject {
   const o = obj(value, 'project');
   const schemaVersion = num(o.schemaVersion, 'project.schemaVersion');
-  if (schemaVersion !== SCHEMA_VERSION) fail('project.schemaVersion', `unsupported version ${schemaVersion}`);
+  if (!Number.isInteger(schemaVersion) || schemaVersion < MIN_SUPPORTED_SCHEMA_VERSION || schemaVersion > SCHEMA_VERSION) {
+    fail('project.schemaVersion', `unsupported version ${schemaVersion}`);
+  }
 
   if (!Array.isArray(o.palette) || o.palette.length === 0) fail('project.palette', 'expected a non-empty array');
   const palette = o.palette.map((c, i) => paletteColor(c, `project.palette[${i}]`));
@@ -85,23 +88,37 @@ export function validateProject(value: unknown): ArtworkProject {
 
   if (!Array.isArray(o.shapes)) fail('project.shapes', 'expected an array');
   const shapeIds = new Set<string>();
-  const shapes: PolygonShape[] = o.shapes.map((raw, i) => {
+  const shapes: Shape[] = o.shapes.map((raw, i) => {
     const path = `project.shapes[${i}]`;
     const s = obj(raw, path);
-    if (s.type !== 'polygon') fail(`${path}.type`, 'expected "polygon"');
     const id = str(s.id, `${path}.id`);
     if (shapeIds.has(id)) fail(`${path}.id`, 'duplicate shape id');
     shapeIds.add(id);
-    if (!Array.isArray(s.points)) fail(`${path}.points`, 'expected an array');
-    const points = s.points.map((p, j) => point(p, `${path}.points[${j}]`));
-    if (!isValidPolygon(points)) fail(`${path}.points`, 'not a valid simple polygon');
     const colorId = str(s.colorId, `${path}.colorId`);
     if (!colorIds.has(colorId)) fail(`${path}.colorId`, 'unknown palette colour');
-    return { id, type: 'polygon', points, colorId };
+    if (s.type === 'polygon') {
+      if (!Array.isArray(s.points)) fail(`${path}.points`, 'expected an array');
+      const points = s.points.map((p, j) => point(p, `${path}.points[${j}]`));
+      if (!isValidPolygon(points)) fail(`${path}.points`, 'not a valid simple polygon');
+      return { id, type: 'polygon', points, colorId };
+    }
+    // Circles only exist from schema version 2.
+    if (s.type === 'circle' && schemaVersion >= 2) {
+      const circle = {
+        cx: num(s.cx, `${path}.cx`),
+        cy: num(s.cy, `${path}.cy`),
+        radius: num(s.radius, `${path}.radius`),
+        innerRadius: num(s.innerRadius, `${path}.innerRadius`),
+      };
+      if (!isValidCircle(circle)) fail(path, 'invalid circle or ring radii');
+      return { id, type: 'circle', ...circle, colorId };
+    }
+    return fail(`${path}.type`, `unknown shape type ${JSON.stringify(s.type)}`);
   });
 
   return {
-    schemaVersion,
+    // Older documents are upgraded in memory and saved in the current version.
+    schemaVersion: SCHEMA_VERSION,
     id: str(o.id, 'project.id'),
     name: typeof o.name === 'string' ? o.name : 'Untitled',
     createdAt: isoDate(o.createdAt, 'project.createdAt'),

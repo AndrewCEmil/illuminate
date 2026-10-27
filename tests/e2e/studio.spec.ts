@@ -236,3 +236,64 @@ test('works offline after the service worker is installed', async ({ page, conte
   expect(readFileSync((await download.path())!, 'utf8')).toContain('<polygon');
   await context.setOffline(false);
 });
+
+test('circle tool: drag from centre, three-point trace, ring toggle, see-through artwork', async ({ page }) => {
+  const touch = await Touch.create(page);
+  await newProject(page);
+  await page.getByRole('button', { name: 'Circle' }).click();
+
+  // Drag from the centre out to the rim.
+  await touch.drag(await worldToPage(page, { x: 200, y: 200 }), await worldToPage(page, { x: 280, y: 200 }));
+  const disc = page.locator('[data-shape-type=circle]').first();
+  await expect(disc).toHaveAttribute('cx', /^200(\.\d+)?$/);
+  expect(Number(await disc.getAttribute('r'))).toBeCloseTo(80, -0.5);
+
+  // Trace a circle by tapping three points on its edge.
+  for (const p of [{ x: 450, y: 600 }, { x: 400, y: 650 }, { x: 350, y: 600 }]) await touch.tap(await worldToPage(page, p));
+  await expect(page.locator('[data-shape-type=circle]')).toHaveCount(2);
+  const traced = page.locator('[data-shape-type=circle]').nth(1);
+  expect(Number(await traced.getAttribute('cx'))).toBeCloseTo(400, -0.5);
+  expect(Number(await traced.getAttribute('cy'))).toBeCloseTo(600, -0.5);
+  expect(Number(await traced.getAttribute('r'))).toBeCloseTo(50, -0.5);
+
+  // Select the first circle, make it a ring, then widen the hole with the inner handle.
+  await page.getByRole('button', { name: 'Select' }).click();
+  await touch.tap(await worldToPage(page, { x: 230, y: 200 }));
+  await page.getByRole('button', { name: 'Ring', exact: true }).click();
+  await expect(page.locator('[data-shape-type=circle]').first()).toHaveAttribute('fill-rule', 'evenodd');
+  const innerHandle = await worldToPage(page, { x: 200 - 48, y: 200 }); // 60% of 80
+  await touch.drag(innerHandle, { x: innerHandle.x - 30, y: innerHandle.y });
+
+  // Undo restores the default hole, redo the widened one.
+  const widened = await page.locator('[data-shape-type=circle]').first().getAttribute('d');
+  await page.getByRole('button', { name: 'Undo' }).click();
+  expect(await page.locator('[data-shape-type=circle]').first().getAttribute('d')).not.toBe(widened);
+  await page.getByRole('button', { name: 'Redo' }).click();
+  expect(await page.locator('[data-shape-type=circle]').first().getAttribute('d')).toBe(widened);
+
+  // See-through artwork: on by default while tracing, solid when the reference is hidden.
+  const artwork = page.getByTestId('artwork').first();
+  await expect(artwork).toHaveAttribute('opacity', '0.75');
+  await page.getByRole('button', { name: 'Reference opacity' }).click();
+  await page.getByRole('slider', { name: 'Artwork opacity' }).fill('50');
+  await expect(artwork).toHaveAttribute('opacity', '0.5');
+  await page.locator('.popover-backdrop').click({ position: { x: 10, y: 600 } });
+  await page.getByRole('button', { name: 'Hide reference' }).click();
+  await expect(artwork).not.toHaveAttribute('opacity', /.*/);
+
+  // Everything persists; the opacity preference too.
+  await waitSaved(page);
+  await page.reload();
+  await expect(page.locator('[data-shape-type=circle]')).toHaveCount(2);
+  expect(await page.locator('[data-shape-type=circle]').first().getAttribute('d')).toBe(widened);
+  await page.getByRole('button', { name: 'Show reference' }).click();
+  await expect(page.getByTestId('artwork').first()).toHaveAttribute('opacity', '0.5');
+
+  // SVG export: one <path> ring and one <circle>, fully opaque.
+  await page.getByRole('button', { name: 'Menu' }).click();
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /SVG/ }).click()]);
+  const svg = readFileSync((await download.path())!, 'utf8');
+  expect(svg.match(/<path [^>]*fill-rule="evenodd"/g)).toHaveLength(1);
+  expect(svg.match(/<circle /g)).toHaveLength(1);
+  expect(svg).not.toMatch(/opacity/);
+});

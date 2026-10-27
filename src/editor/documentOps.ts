@@ -1,29 +1,61 @@
-import type { ArtworkProject, PaletteColor, Point, PolygonShape, ReferenceImage } from '../data/models';
+import type { ArtworkProject, CircleShape, PaletteColor, Point, PolygonShape, ReferenceImage, Shape } from '../data/models';
 import { newId } from '../data/models';
-import { isValidPolygon } from './geometry';
+import { DEFAULT_RING_RATIO, MIN_RADIUS, isValidShape, sameGeometry } from './shapes';
 
 /**
  * Pure, immutable operations on the artwork document. Each returns a new
  * document, or the same instance when nothing changed (so history can skip it).
  */
 
-export function addPolygon(doc: ArtworkProject, points: Point[], colorId: string, id = newId('shp')): ArtworkProject {
-  if (!isValidPolygon(points)) throw new Error('Refusing to add an invalid polygon');
-  if (!doc.palette.some((c) => c.id === colorId)) throw new Error(`Unknown palette colour ${colorId}`);
-  const shape: PolygonShape = { id, type: 'polygon', points: points.map((p) => ({ x: p.x, y: p.y })), colorId };
+/** Adds a shape on top of the stack. Throws on invalid geometry or an unknown colour. */
+export function addShape(doc: ArtworkProject, shape: Shape): ArtworkProject {
+  if (!isValidShape(shape)) throw new Error('Refusing to add an invalid shape');
+  if (!doc.palette.some((c) => c.id === shape.colorId)) throw new Error(`Unknown palette colour ${shape.colorId}`);
   return { ...doc, shapes: [...doc.shapes, shape] };
 }
 
-export function setShapePoints(doc: ArtworkProject, shapeId: string, points: Point[]): ArtworkProject {
-  if (!isValidPolygon(points)) return doc;
+export function addPolygon(doc: ArtworkProject, points: Point[], colorId: string, id = newId('shp')): ArtworkProject {
+  const shape: PolygonShape = { id, type: 'polygon', points: points.map((p) => ({ x: p.x, y: p.y })), colorId };
+  return addShape(doc, shape);
+}
+
+export function addCircle(
+  doc: ArtworkProject,
+  circle: { cx: number; cy: number; radius: number; innerRadius?: number },
+  colorId: string,
+  id = newId('shp'),
+): ArtworkProject {
+  const shape: CircleShape = { id, type: 'circle', cx: circle.cx, cy: circle.cy, radius: circle.radius, innerRadius: circle.innerRadius ?? 0, colorId };
+  return addShape(doc, shape);
+}
+
+/**
+ * Replaces a shape's geometry (same id, type and colour). Invalid geometry or
+ * an unchanged shape returns the document unchanged.
+ */
+export function updateShapeGeometry(doc: ArtworkProject, next: Shape): ArtworkProject {
+  if (!isValidShape(next)) return doc;
   let changed = false;
   const shapes = doc.shapes.map((s) => {
-    if (s.id !== shapeId) return s;
-    if (samePoints(s.points, points)) return s;
+    if (s.id !== next.id || s.type !== next.type || sameGeometry(s, next)) return s;
     changed = true;
-    return { ...s, points: points.map((p) => ({ x: p.x, y: p.y })) };
+    return { ...next, colorId: s.colorId };
   });
   return changed ? { ...doc, shapes } : doc;
+}
+
+export function setShapePoints(doc: ArtworkProject, shapeId: string, points: Point[]): ArtworkProject {
+  const shape = doc.shapes.find((s) => s.id === shapeId);
+  if (!shape || shape.type !== 'polygon') return doc;
+  return updateShapeGeometry(doc, { ...shape, points: points.map((p) => ({ x: p.x, y: p.y })) });
+}
+
+/** Turns a solid circle into a ring (with a default hole) or a ring back into a solid circle. */
+export function toggleRing(doc: ArtworkProject, shapeId: string): ArtworkProject {
+  const shape = doc.shapes.find((s) => s.id === shapeId);
+  if (!shape || shape.type !== 'circle') return doc;
+  const innerRadius = shape.innerRadius > 0 ? 0 : Math.max(MIN_RADIUS, Math.min(shape.radius * DEFAULT_RING_RATIO, shape.radius - MIN_RADIUS));
+  return updateShapeGeometry(doc, { ...shape, innerRadius });
 }
 
 export function deleteShape(doc: ArtworkProject, shapeId: string): ArtworkProject {
@@ -112,8 +144,4 @@ export function normalizeHex(input: string): string | null {
   if (/^[0-9a-f]{6}$/.test(s)) return `#${s}`;
   if (/^[0-9a-f]{3}$/.test(s)) return `#${s[0]}${s[0]}${s[1]}${s[1]}${s[2]}${s[2]}`;
   return null;
-}
-
-function samePoints(a: readonly Point[], b: readonly Point[]): boolean {
-  return a.length === b.length && a.every((p, i) => p.x === b[i]!.x && p.y === b[i]!.y);
 }
